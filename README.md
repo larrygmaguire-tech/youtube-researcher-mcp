@@ -1,5 +1,7 @@
 # YouTube Researcher MCP Server
 
+**v1.1.0** · MIT License
+
 An MCP (Model Context Protocol) server for researching YouTube niches. Wraps the YouTube Data API v3 to search for videos, fetch metadata, calculate engagement metrics, download thumbnails, and produce aggregate niche statistics.
 
 Built for Claude Code — define your niche, and the server returns structured data on what's working: title patterns, engagement rates, video lengths, top tags, channel sizes, and thumbnail images for visual analysis.
@@ -49,11 +51,12 @@ The skill handles the full workflow — topic prompt, niche analysis, thumbnail 
 ## Installation
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/larrygmaguire-hash/youtube-researcher-mcp.git
 cd youtube-researcher-mcp
 npm install
-npm run build
 ```
+
+Pre-built JavaScript is included in `build/` — no TypeScript compilation needed. To rebuild from source: `npm run build`.
 
 ## Configuration
 
