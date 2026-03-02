@@ -1,0 +1,35 @@
+{
+  "name": "youtube-researcher-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for YouTube niche research via YouTube Data API v3",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "youtube-researcher-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "mcp",
+    "youtube",
+    "claude",
+    "research",
+    "niche-analysis",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
