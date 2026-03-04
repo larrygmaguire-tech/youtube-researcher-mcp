@@ -68,9 +68,11 @@ Create a `.env` file or pass the key directly:
 YOUTUBE_API_KEY=your_key_here
 ```
 
+The server validates this at startup and exits if the key is missing.
+
 ### Claude Code Registration
 
-Add to `~/.claude.json`:
+**Global** — add to `~/.claude.json`:
 
 ```json
 {
@@ -87,19 +89,27 @@ Add to `~/.claude.json`:
 }
 ```
 
+**Workspace-scoped** — add to `.mcp.json` in the workspace root (same structure). This keeps the server available only within that workspace.
+
 ## Tools
 
 ### youtube_search_niche
 
-Search YouTube for videos by keyword. Returns video IDs sorted by view count, date, or relevance.
+Search YouTube for videos by keyword. Returns video IDs sorted by view count, date, relevance, or rating.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| query | string | Yes | Search keyword(s) |
-| maxResults | number | No | 1-50, default 25 |
-| order | string | No | viewCount, date, relevance, rating |
-| publishedAfter | string | No | ISO 8601 date filter |
-| regionCode | string | No | ISO 3166-1 alpha-2 code |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| query | string | Yes | — | Search keyword(s) |
+| maxResults | number | No | 25 | 1–50 |
+| order | string | No | viewCount | `viewCount`, `date`, `relevance`, `rating` |
+| publishedAfter | string | No | — | ISO 8601 date filter (e.g. `2025-01-01T00:00:00Z`) |
+| regionCode | string | No | — | ISO 3166-1 alpha-2 code (e.g. `IE`, `GB`, `US`) |
+
+**Returns:** `{ videoIds: string[], count: number, quotaUsed: number }`
+
+**Note:** This is the only tool that supports the `rating` sort order and the `regionCode` filter.
+
+---
 
 ### youtube_get_video_details
 
@@ -109,45 +119,140 @@ Fetch full metadata for video IDs. Returns title, description, tags, thumbnails,
 |-----------|------|----------|-------------|
 | videoIds | string[] | Yes | Video IDs (max 50) |
 
+**Returns per video:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| videoId | string | YouTube video ID |
+| title | string | Video title |
+| description | string | Full description text |
+| tags | string[] | Video tags |
+| publishedAt | string | ISO 8601 publish date |
+| durationSeconds | number | Duration in seconds |
+| durationFormatted | string | Human-readable duration (e.g. `12:34`) |
+| viewCount | number | Total views |
+| likeCount | number | Total likes |
+| commentCount | number | Total comments |
+| channelId | string | Channel ID |
+| channelTitle | string | Channel name |
+| categoryId | string | YouTube category ID |
+| thumbnailUrls | object | URLs at default/medium/high/standard/maxres sizes |
+| engagementRate | number | (likes + comments) / views |
+| likeToViewRatio | number | likes / views |
+| commentDensity | number | comments / views |
+| daysSincePublish | number | Days since publish (minimum 1) |
+| viewVelocity | number | views / daysSincePublish |
+
+---
+
 ### youtube_get_channel_details
 
-Fetch channel metadata including subscriber count, total views, and video count.
+Fetch channel metadata including subscriber count, total views, and video count. Deduplicates channel IDs automatically.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| channelIds | string[] | Yes | Channel IDs (max 50) |
+| channelIds | string[] | Yes | Channel IDs (max 50; duplicates removed) |
+
+**Returns per channel:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| channelId | string | Channel ID |
+| title | string | Channel name |
+| description | string | Channel description |
+| subscriberCount | number | Subscriber count |
+| videoCount | number | Total videos published |
+| totalViewCount | number | Lifetime view count |
+| publishedAt | string | Channel creation date |
+| thumbnailUrl | string | Channel avatar URL |
+| hiddenSubscriberCount | boolean | Whether the sub count is hidden |
+
+---
 
 ### youtube_analyse_niche
 
-**Primary entry point.** Compound tool that searches, fetches video/channel details, calculates metrics, and returns aggregate statistics. Filters out Shorts (<60s) and active live streams.
+**Primary entry point.** Compound tool that searches, fetches video/channel details, calculates metrics, and returns aggregate statistics in a single call.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| query | string | Yes | Niche keyword(s) |
-| maxResults | number | No | 1-50, default 30. Recommend 10 for lean workflow |
-| publishedAfter | string | No | ISO 8601 date filter |
-| minViews | number | No | Minimum view count filter |
-| order | string | No | viewCount, date, relevance |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| query | string | Yes | — | Niche keyword(s) |
+| maxResults | number | No | 30 | 1–50. Recommend 10 for lean workflow |
+| publishedAfter | string | No | — | ISO 8601 date filter |
+| minViews | number | No | — | Minimum view count filter (post-fetch — see note) |
+| order | string | No | viewCount | `viewCount`, `date`, `relevance` |
 
-**Returns:** Videos with metrics, channel data, and aggregates:
-- Median/average view count, engagement rate, duration
-- Top 20 tags by frequency
-- Duration distribution (under 5min, 5-10, 10-20, 20+)
-- Publish day distribution
-- Channel size distribution (micro <10K, mid 10K-100K, large 100K-1M, mega 1M+)
+**Automatic filters (no parameter needed):**
+- Videos under 60 seconds are excluded (Shorts detection by duration, not YouTube's Shorts flag)
+- Active live streams are excluded
+
+**`minViews` gotcha:** This is a post-fetch filter. The search and video detail API calls run first (consuming quota), then videos below the threshold are removed from results. A high `minViews` value can return very few or zero videos while still costing the full quota.
+
+**Not available on this tool:** `regionCode` and `rating` sort order — use `youtube_search_niche` for those.
+
+**Returns:**
+
+```
+{
+  query: string,
+  fetchedAt: string,              // ISO 8601 timestamp
+  totalVideosAnalysed: number,
+  videos: VideoMetrics[],         // Full per-video data (see youtube_get_video_details)
+  channels: ChannelMetrics[],     // Deduplicated channel data
+  aggregates: {
+    medianViewCount: number,
+    averageViewCount: number,
+    medianEngagementRate: number,
+    averageEngagementRate: number,
+    medianDurationSeconds: number,
+    medianLikeToViewRatio: number,
+    topTags: [{ tag, count }],           // Top 20 by frequency
+    durationDistribution: {              // Video count per bucket
+      under5min, fiveToTen, tenToTwenty, overTwenty
+    },
+    publishDayDistribution: {            // Count by day of week (UTC)
+      Monday, Tuesday, ...
+    },
+    channelSizeDistribution: {           // By subscriber count
+      micro: <10K, mid: 10K-100K, large: 100K-1M, mega: 1M+
+    }
+  },
+  quotaUsed: number
+}
+```
+
+---
 
 ### youtube_get_thumbnails
 
-Download thumbnail images to a local directory. No API quota cost.
+Download thumbnail images to a local directory. No API quota cost — fetches directly from YouTube's image CDN.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| videoIds | string[] | Yes | Video IDs (max 50) |
-| outputDir | string | No | Save path (default: ~/Downloads/youtube-thumbnails/[date]/) |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| videoIds | string[] | Yes | — | Video IDs (max 50) |
+| outputDir | string | No | `~/Downloads/youtube-thumbnails/YYYY-MM-DD/` | Save path |
+
+**Behaviour:** Tries `maxresdefault.jpg` first; falls back to `hqdefault.jpg` on 404. Files saved as `[videoId].jpg`.
+
+**Returns:** `{ downloaded: number, outputDir: string, files: { [videoId]: "/absolute/path.jpg" } }`
+
+---
 
 ### youtube_quota_status
 
-Report estimated quota usage for the current session.
+Report estimated quota usage for the current server session. No parameters.
+
+**Returns:**
+
+```json
+{
+  "quotaUsed": 103,
+  "dailyLimit": 10000,
+  "remaining": 9897,
+  "note": "Quota resets at midnight Pacific Time. Usage is estimated..."
+}
+```
+
+**Note:** The counter tracks usage within the current server process. It resets when the server restarts, and does not reflect the actual Google-side daily total.
 
 ## Calculated Metrics
 
@@ -158,7 +263,7 @@ For each video, the server calculates:
 | Engagement rate | (likes + comments) / views |
 | Like-to-view ratio | likes / views |
 | Comment density | comments / views |
-| Days since publish | (now - publishedAt) / 86400000 |
+| Days since publish | (now - publishedAt) / 86400000, minimum 1 |
 | View velocity | views / days since publish |
 
 ## Quota
@@ -183,6 +288,8 @@ npm run dev    # Watch mode — recompiles on changes
 npm run build  # One-time build
 npm start      # Run the server
 ```
+
+**Tech stack:** TypeScript 5.3, ES2022 target, NodeNext modules, `@modelcontextprotocol/sdk ^1.0.0`. No runtime dependencies beyond the MCP SDK — uses Node 18+ native `fetch` for all HTTP calls.
 
 ## Licence
 
